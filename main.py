@@ -374,11 +374,12 @@ def fetch_confluence_page(page_id):
     return resp.json()
 
 
-def update_confluence_page(content):
+def update_confluence_page(content, page=None):
     if not CONFLUENCE_PAGE_ID:
         raise ValueError("CONFLUENCE_PAGE_ID not set")
 
-    page = fetch_confluence_page(CONFLUENCE_PAGE_ID)
+    if page is None:
+        page = fetch_confluence_page(CONFLUENCE_PAGE_ID)
     version = page["version"]["number"] + 1
     title = page.get("title") or CONFLUENCE_PAGE_TITLE
 
@@ -407,12 +408,13 @@ def update_confluence_page(content):
 
 
 def run_one_update():
+    print("  📊 Running one-shot Confluence update...")
+    page = fetch_confluence_page(CONFLUENCE_PAGE_ID)
     standings = fetch_standings()
     matches = fetch_matches()
     statuses = compute_team_statuses(standings, matches)
-    print("  📊 Running one-shot Confluence update...")
     text = build_confluence_storage_message(statuses)
-    update_confluence_page(text)
+    update_confluence_page(text, page=page)
     return statuses
 
 # ── MAIN LOOP ─────────────────────────────────────────────────────────────
@@ -430,7 +432,14 @@ def main():
     last_statuses = {}
 
     if RUN_ONCE:
-        run_one_update()
+        try:
+            run_one_update()
+        except ConfluenceRequestError as e:
+            print(f"  ❌ {e}")
+            return
+        except Exception as e:
+            print(f"  ❌ One-shot update failed: {e}")
+            return
         print("One-shot update complete; exiting.")
         return
 
