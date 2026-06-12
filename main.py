@@ -12,11 +12,11 @@ load_dotenv()
 
 # ── CONFIG ──────────────────────────────────────────────────────────────
 FD_API_KEY      = os.getenv("FD_API_KEY")
-CONFLUENCE_BASE_URL = os.getenv("CONFLUENCE_BASE_URL", "").rstrip("/")
-CONFLUENCE_EMAIL = os.getenv("CONFLUENCE_EMAIL")
-CONFLUENCE_API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN")
-CONFLUENCE_PAGE_ID = os.getenv("CONFLUENCE_PAGE_ID")
-CONFLUENCE_PAGE_TITLE = os.getenv("CONFLUENCE_PAGE_TITLE", "World Cup 2026 Sweepstake")
+CONFLUENCE_BASE_URL = os.getenv("CONFLUENCE_BASE_URL", "").strip().rstrip("/")
+CONFLUENCE_EMAIL = os.getenv("CONFLUENCE_EMAIL", "").strip()
+CONFLUENCE_API_TOKEN = os.getenv("CONFLUENCE_API_TOKEN", "").strip()
+CONFLUENCE_PAGE_ID = os.getenv("CONFLUENCE_PAGE_ID", "").strip()
+CONFLUENCE_PAGE_TITLE = os.getenv("CONFLUENCE_PAGE_TITLE", "World Cup 2026 Sweepstake").strip()
 RUN_ONCE = os.getenv("RUN_ONCE", "false").lower() in {"1", "true", "yes", "on"}
 COMPETITION     = "WC"
 
@@ -354,9 +354,22 @@ def confluence_auth():
     return (CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN)
 
 
+class ConfluenceRequestError(RuntimeError):
+    def __init__(self, action, response):
+        body = response.text.strip()
+        message = f"Confluence {action} failed: {response.status_code} {response.reason}"
+        if body:
+            message = f"{message}\n{body}"
+        super().__init__(message)
+        self.response = response
+        self.status_code = response.status_code
+
+
 def fetch_confluence_page(page_id):
     url = f"{confluence_api_base()}/pages/{page_id}"
     resp = requests.get(url, auth=confluence_auth(), headers={"Accept": "application/json"})
+    if resp.status_code >= 400:
+        raise ConfluenceRequestError(f"fetching page {page_id}", resp)
     resp.raise_for_status()
     return resp.json()
 
@@ -387,6 +400,8 @@ def update_confluence_page(content):
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         json=payload,
     )
+    if resp.status_code >= 400:
+        raise ConfluenceRequestError(f"updating page {CONFLUENCE_PAGE_ID}", resp)
     resp.raise_for_status()
     print(f"  ✅ Confluence page updated successfully: {title} (v{version})")
 
@@ -447,6 +462,10 @@ def main():
                 else:
                     print(f"  ⏳ No change yet (attempt {attempt+1}/30), retrying in 60s...")
                     time.sleep(POLL_INTERVAL_SECS)
+
+            except ConfluenceRequestError as e:
+                print(f"  ❌ {e}")
+                return
 
             except Exception as e:
                 print(f"  ⚠️ Error: {e} — retrying in 60s")
